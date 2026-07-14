@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Social Finder</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 640px;
+      margin: 4rem auto;
+      padding: 0 1.5rem;
+      line-height: 1.5;
+    }
+    h1 { font-size: 1.5rem; }
+    form { display: flex; gap: 0.5rem; margin: 1.5rem 0; }
+    input[type=text] {
+      flex: 1;
+      padding: 0.6rem 0.8rem;
+      font-size: 1rem;
+      border: 1px solid #888;
+      border-radius: 6px;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    .error { color: #b91c1c; }
+    .platform { margin-bottom: 0.75rem; }
+    .platform strong { display: inline-block; width: 130px; }
+    .meta { color: #666; font-size: 0.85rem; margin-top: 2rem; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>Social Finder</h1>
+  <p>Enter a website URL and get any social media profiles linked from it.</p>
+
+  <form method="post">
+    <input type="text" name="url" placeholder="example.com" value="{{ submitted_url }}" autofocus>
+    <button type="submit">Search</button>
+  </form>
+
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+
+  {% if results %}
+    <div>
+      {% for platform, urls in results.items() %}
+        <div class="platform">
+          <strong>{{ platform }}</strong>
+          {% for u in urls %}
+            <div><a href="{{ u }}" target="_blank" rel="noopener">{{ u }}</a></div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if pages_checked %}
+    <p class="meta">Checked: {{ pages_checked | join(', ') }}</p>
+  {% endif %}
+</body>
+</html>
