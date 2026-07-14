@@ -1,5 +1,6 @@
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -136,9 +137,11 @@ def find_socials(start_url: str) -> dict:
     all_links = set()
     pages_checked = []
 
-    for path in CANDIDATE_PATHS:
-        page_url = urljoin(origin, path)
-        html = fetch(page_url)
+    candidate_urls = [urljoin(origin, path) for path in CANDIDATE_PATHS]
+    with ThreadPoolExecutor(max_workers=len(candidate_urls)) as pool:
+        htmls = pool.map(fetch, candidate_urls)
+
+    for page_url, html in zip(candidate_urls, htmls):
         if html is None:
             continue
         pages_checked.append(page_url)
