@@ -70,11 +70,15 @@ PROFILE_URL_TEMPLATES = {
     "Letterboxd": "https://letterboxd.com/{u}",
     "Steam": "https://steamcommunity.com/id/{u}",
     "Medium": "https://medium.com/@{u}",
+    "Twitch": "https://www.twitch.tv/{u}",
 }
 
 NOT_FOUND_MARKERS = {
     "Steam": ["could not be found"],
     "Medium": ["PAGE NOT FOUND"],
+    # A missing/fake Twitch channel renders a generic <title>Twitch</title>;
+    # a real one always includes the channel name before " - Twitch".
+    "Twitch": ["<title>Twitch</title>"],
 }
 
 USERNAME_RE = re.compile(r"^@?[A-Za-z0-9_.\-]{1,40}$")
