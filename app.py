@@ -10,7 +10,7 @@ from flask import Flask, render_template, request
 
 app = Flask(__name__)
 
-USER_AGENT = "Mozilla/5.0 (compatible; SocialFinder/1.0; +https://example.com/bot)"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 TIMEOUT = 8
 
 # Map of platform name -> regex matching that platform's profile URLs
@@ -33,23 +33,48 @@ CANDIDATE_PATHS = ["", "/about", "/about-us", "/contact", "/contact-us"]
 # Templates for guessing a profile URL from a bare username, used for the
 # "other accounts using this username" cross-platform check.
 #
-# Deliberately a short list. Most social platforms are JS-rendered apps
-# that return HTTP 200 for a profile page whether or not the username
-# exists — the "not found" state only appears after client-side JS runs,
-# which a plain HTTP request never sees. Testing confirmed Instagram,
-# Reddit, Pinterest, Twitch, TikTok, Threads, and YouTube all give false
-# positives this way. Only these three give a trustworthy signal from a
-# plain server-side request (a real 404/400, or "not found" text that's
-# actually present in the initial HTML) — everything else was cut rather
-# than ship a feature that confidently lies.
+# Deliberately a curated list, not "every platform." Most social apps are
+# client-rendered and return HTTP 200 for a profile page whether or not
+# the username exists — the "not found" state only appears after
+# JavaScript runs, which a plain HTTP request never sees. Testing
+# confirmed Instagram, Reddit, Pinterest, Twitch, TikTok, Threads, Spotify,
+# Snapchat, and Telegram all give false positives this way, so they're
+# excluded. Every platform below was verified against both a real and a
+# clearly-fake username to confirm it actually distinguishes the two
+# (via a real 404/403, or "not found" text present in the plain HTML).
+#
+# Deliberately excluded regardless of technical feasibility: adult-content
+# platforms (e.g. OnlyFans). A username-in/account-out lookup for those is
+# a doxxing/outing vector — the person being looked up is very often the
+# one who doesn't want that link made, unlike a GitHub or Behance profile.
+#
+# X/Twitter was tested and cut too: it only distinguishes real/fake via a
+# server-rendered "doesn't exist" message, and that message disappears
+# under X's own bot-mitigation (confirmed during testing — it degrades to
+# a generic 200 JS shell for every profile once rate-limited), which a
+# shared cloud host IP is likely to trigger quickly. Unlike GitHub/GitLab's
+# plain 404, this one would fail silently into false positives in
+# production, not just get slower.
 PROFILE_URL_TEMPLATES = {
-    "X / Twitter": "https://x.com/{u}",
     "GitHub": "https://github.com/{u}",
     "Facebook": "https://www.facebook.com/{u}",
+    "GitLab": "https://gitlab.com/{u}",
+    "npm": "https://www.npmjs.com/~{u}",
+    "Keybase": "https://keybase.io/{u}",
+    "SoundCloud": "https://soundcloud.com/{u}",
+    "Vimeo": "https://vimeo.com/{u}",
+    "Dribbble": "https://dribbble.com/{u}",
+    "Behance": "https://www.behance.net/{u}",
+    "Flickr": "https://www.flickr.com/people/{u}",
+    "DeviantArt": "https://www.deviantart.com/{u}",
+    "Letterboxd": "https://letterboxd.com/{u}",
+    "Steam": "https://steamcommunity.com/id/{u}",
+    "Medium": "https://medium.com/@{u}",
 }
 
 NOT_FOUND_MARKERS = {
-    "X / Twitter": ["This account doesn’t exist", "This account doesn't exist"],
+    "Steam": ["could not be found"],
+    "Medium": ["PAGE NOT FOUND"],
 }
 
 USERNAME_RE = re.compile(r"^@?[A-Za-z0-9_.\-]{1,40}$")
