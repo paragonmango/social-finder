@@ -36,12 +36,14 @@ CANDIDATE_PATHS = ["", "/about", "/about-us", "/contact", "/contact-us"]
 # Deliberately a curated list, not "every platform." Most social apps are
 # client-rendered and return HTTP 200 for a profile page whether or not
 # the username exists — the "not found" state only appears after
-# JavaScript runs, which a plain HTTP request never sees. Testing
-# confirmed Instagram, Reddit, Pinterest, Twitch, TikTok, Threads, Spotify,
-# Snapchat, and Telegram all give false positives this way, so they're
-# excluded. Every platform below was verified against both a real and a
-# clearly-fake username to confirm it actually distinguishes the two
-# (via a real 404/403, or "not found" text present in the plain HTML).
+# JavaScript runs, which a plain HTTP request never sees. Every platform
+# below was verified against several real AND several clearly-fake
+# usernames to confirm it actually distinguishes the two. Still excluded
+# after that testing: Instagram, Reddit (both serve an identical bot-wall
+# page either way), Threads, Telegram (its "View" vs "Contact" title looks
+# like a signal but tracks "has a preview enabled," not "exists" — a real
+# account, NASA's, showed "Contact" same as a fake one), TikTok and Spotify
+# (byte-for-byte same shell either way).
 #
 # Deliberately excluded regardless of technical feasibility: adult-content
 # platforms (e.g. OnlyFans). A username-in/account-out lookup for those is
@@ -71,6 +73,9 @@ PROFILE_URL_TEMPLATES = {
     "Steam": "https://steamcommunity.com/id/{u}",
     "Medium": "https://medium.com/@{u}",
     "Twitch": "https://www.twitch.tv/{u}",
+    "YouTube": "https://www.youtube.com/@{u}",
+    "Pinterest": "https://www.pinterest.com/{u}/",
+    "Snapchat": "https://www.snapchat.com/add/{u}",
 }
 
 NOT_FOUND_MARKERS = {
@@ -79,6 +84,11 @@ NOT_FOUND_MARKERS = {
     # A missing/fake Twitch channel renders a generic <title>Twitch</title>;
     # a real one always includes the channel name before " - Twitch".
     "Twitch": ["<title>Twitch</title>"],
+    # Pinterest renders an empty <title></title> for a fake profile.
+    "Pinterest": ["<title></title>"],
+    # Snapchat's fake-profile title is bare "Snapchat"; a real one always
+    # includes the display name and "(@handle)" before it.
+    "Snapchat": ['<title data-react-helmet="true">Snapchat</title>'],
 }
 
 USERNAME_RE = re.compile(r"^@?[A-Za-z0-9_.\-]{1,40}$")
@@ -222,7 +232,18 @@ def looks_like_username(raw: str) -> bool:
 
 def check_profile_exists(platform: str, url: str):
     try:
-        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, allow_redirects=True)
+        resp = requests.get(
+            url,
+            headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
+            # Without a pre-accepted consent cookie, Google intermittently
+            # redirects YouTube requests to a "Before you continue" consent
+            # page (status 200) instead of the real 404/profile — for both
+            # real and fake usernames alike. This cookie was confirmed over
+            # repeated runs to make that behavior go away.
+            cookies={"SOCS": "CAISHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiA_LyaBg"},
+            timeout=TIMEOUT,
+            allow_redirects=True,
+        )
     except requests.RequestException:
         return "unknown"
     if resp.status_code == 404:
