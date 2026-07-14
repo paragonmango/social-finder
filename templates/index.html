@@ -36,15 +36,17 @@
     .platform { margin-bottom: 0.75rem; }
     .platform strong { display: inline-block; width: 130px; }
     .meta { color: #666; font-size: 0.85rem; margin-top: 2rem; }
+    .section-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 1.5rem 0 0.5rem; }
+    .caveat { color: #888; font-size: 0.85rem; margin-top: 0.25rem; }
     a { color: #2563eb; }
   </style>
 </head>
 <body>
   <h1>Social Finder</h1>
-  <p>Enter a website URL and get any social media profiles linked from it.</p>
+  <p>Enter a website URL, or a bare username, to find linked social media profiles.</p>
 
   <form method="post">
-    <input type="text" name="url" placeholder="example.com" value="{{ submitted_url }}" autofocus>
+    <input type="text" name="url" placeholder="example.com or a username" value="{{ submitted_url }}" autofocus>
     <button type="submit">Search</button>
   </form>
 
@@ -53,6 +55,7 @@
   {% endif %}
 
   {% if results %}
+    <p class="section-label">Linked directly on the site</p>
     <div>
       {% for platform, urls in results.items() %}
         <div class="platform">
@@ -63,6 +66,19 @@
         </div>
       {% endfor %}
     </div>
+  {% endif %}
+
+  {% if other_matches %}
+    <p class="section-label">Same username elsewhere (unconfirmed)</p>
+    <div>
+      {% for platform, u in other_matches.items() %}
+        <div class="platform">
+          <strong>{{ platform }}</strong>
+          <div><a href="{{ u }}" target="_blank" rel="noopener">{{ u }}</a></div>
+        </div>
+      {% endfor %}
+    </div>
+    <p class="caveat">These are profiles matching the same username, not confirmed to be the same person — some platforms also block automated checks, so this list may be incomplete.</p>
   {% endif %}
 
   {% if pages_checked %}

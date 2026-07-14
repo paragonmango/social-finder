@@ -1,5 +1,6 @@
 import json
 import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
@@ -28,6 +29,30 @@ SOCIAL_PATTERNS = {
 }
 
 CANDIDATE_PATHS = ["", "/about", "/about-us", "/contact", "/contact-us"]
+
+# Templates for guessing a profile URL from a bare username, used for the
+# "other accounts using this username" cross-platform check.
+#
+# Deliberately a short list. Most social platforms are JS-rendered apps
+# that return HTTP 200 for a profile page whether or not the username
+# exists — the "not found" state only appears after client-side JS runs,
+# which a plain HTTP request never sees. Testing confirmed Instagram,
+# Reddit, Pinterest, Twitch, TikTok, Threads, and YouTube all give false
+# positives this way. Only these three give a trustworthy signal from a
+# plain server-side request (a real 404/400, or "not found" text that's
+# actually present in the initial HTML) — everything else was cut rather
+# than ship a feature that confidently lies.
+PROFILE_URL_TEMPLATES = {
+    "X / Twitter": "https://x.com/{u}",
+    "GitHub": "https://github.com/{u}",
+    "Facebook": "https://www.facebook.com/{u}",
+}
+
+NOT_FOUND_MARKERS = {
+    "X / Twitter": ["This account doesn’t exist", "This account doesn't exist"],
+}
+
+USERNAME_RE = re.compile(r"^@?[A-Za-z0-9_.\-]{1,40}$")
 
 # Generic path segments that look like a "profile handle" to the regexes
 # above but are actually nav/marketing pages, not a person's/brand's profile.
@@ -137,7 +162,10 @@ def find_socials(start_url: str) -> dict:
     all_links = set()
     pages_checked = []
 
-    candidate_urls = [urljoin(origin, path) for path in CANDIDATE_PATHS]
+    # The exact page the user gave us (e.g. a Linktree/Throne-style profile
+    # page) goes first — CANDIDATE_PATHS only adds the site's homepage and
+    # common about/contact pages on top of that.
+    candidate_urls = list(dict.fromkeys([start_url] + [urljoin(origin, path) for path in CANDIDATE_PATHS]))
     with ThreadPoolExecutor(max_workers=len(candidate_urls)) as pool:
         htmls = pool.map(fetch, candidate_urls)
 
@@ -159,31 +187,105 @@ def find_socials(start_url: str) -> dict:
     }
 
 
+def looks_like_username(raw: str) -> bool:
+    return bool(USERNAME_RE.match(raw)) and "." not in raw
+
+
+def check_profile_exists(platform: str, url: str):
+    try:
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, allow_redirects=True)
+    except requests.RequestException:
+        return "unknown"
+    if resp.status_code == 404:
+        return "absent"
+    if resp.status_code != 200:
+        return "unknown"
+    markers = NOT_FOUND_MARKERS.get(platform, [])
+    if any(marker in resp.text for marker in markers):
+        return "absent"
+    return "present"
+
+
+def probe_username(username: str) -> dict:
+    """Checks a bare username against common profile-URL patterns.
+    Returns {platform: url} for platforms where a matching profile was
+    found. This does NOT confirm the profile belongs to the same person —
+    it's a same-username guess across platforms, same as manually checking
+    each site by hand."""
+    username = username.lstrip("@")
+    candidates = {platform: template.format(u=username) for platform, template in PROFILE_URL_TEMPLATES.items()}
+
+    found = {}
+    with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+        statuses = pool.map(lambda kv: (kv[0], check_profile_exists(kv[0], kv[1])), candidates.items())
+    for platform, status in statuses:
+        if status == "present":
+            found[platform] = candidates[platform]
+    return found
+
+
+def best_guess_username(results: dict, target_url: str):
+    """Picks one likely username to cross-check against other platforms:
+    the handle that shows up most often among confirmed links, or failing
+    that, the last path segment of the URL the user gave us."""
+    handles = Counter()
+    for urls in results.values():
+        for u in urls:
+            segments = [p for p in urlparse(u).path.split("/") if p]
+            if segments:
+                handles[segments[-1].lstrip("@").lower()] += 1
+    if handles:
+        return handles.most_common(1)[0][0]
+
+    path_segments = [p for p in urlparse(target_url).path.split("/") if p]
+    return path_segments[-1] if path_segments else None
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     results = None
+    other_matches = None
     pages_checked = None
     error = None
     submitted_url = ""
 
     if request.method == "POST":
         submitted_url = request.form.get("url", "")
-        if not submitted_url.strip():
-            error = "Enter a URL first."
+        raw = submitted_url.strip()
+
+        if not raw:
+            error = "Enter a URL or username first."
+
+        elif looks_like_username(raw):
+            username = raw.lstrip("@")
+            other_matches = probe_username(username)
+            if not other_matches:
+                error = f"No profiles found for username \"{username}\" on the platforms we check."
+
         else:
-            target = normalize_url(submitted_url)
+            target = normalize_url(raw)
             if not fetch(target):
-                error = f"Couldn't reach {target}. Check the URL and try again."
+                error = f"Couldn't reach {target}. Check the URL and try again (some sites block automated requests)."
             else:
                 data = find_socials(target)
                 results = data["results"]
                 pages_checked = data["pages_checked"]
-                if not results:
-                    error = "No social links found on the homepage/about/contact pages."
+
+                guess = best_guess_username(results, target)
+                if guess and USERNAME_RE.match(guess):
+                    already_linked = {u for urls in results.values() for u in urls}
+                    probed = probe_username(guess)
+                    other_matches = {
+                        platform: url for platform, url in probed.items() if url not in already_linked
+                    }
+
+                if not results and not other_matches:
+                    error = "No social links found on the site, and no matching username found elsewhere."
 
     return render_template(
         "index.html",
         results=results,
+        other_matches=other_matches,
         pages_checked=pages_checked,
         error=error,
         submitted_url=submitted_url,
